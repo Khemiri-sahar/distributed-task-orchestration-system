@@ -1,0 +1,61 @@
+syntax = "proto3";
+package node;
+option java_package = "com.distributed.grpc.proto";
+option java_outer_classname = "NodeProto";
+
+service NodeService {
+  rpc SubmitTask(TaskRequest) returns (TaskResponse);
+  rpc RequestVote(VoteRequest) returns (VoteResponse);
+  rpc SendHeartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc AcquireLock(LockRequest) returns (LockResponse);
+  rpc ReleaseLock(LockRequest) returns (LockResponse);
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+}
+
+message TaskRequest {
+  string task_id = 1;
+  string task_type = 2;
+  string payload = 3;
+}
+message TaskResponse {
+  bool success = 1;
+  string result = 2;
+  int32 executed_by = 3;
+  bool redirected = 4;
+  string error = 5;
+}
+message VoteRequest {
+  int32 candidate_id = 1;
+  int32 term = 2;
+}
+message VoteResponse {
+  bool vote_granted = 1;
+  int32 voter_id = 2;
+}
+message HeartbeatRequest {
+  int32 leader_id = 1;
+  int32 term = 2;
+}
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  int32 node_id = 2;
+}
+message LockRequest {
+  string task_id = 1;
+  int32 requester_id = 2;
+  int64 lamport_timestamp = 3;
+}
+message LockResponse {
+  bool granted = 1;
+}
+message StatusRequest {}
+message StatusResponse {
+  int32 node_id = 1;
+  string role = 2;
+  int32 current_leader = 3;
+  int32 current_term = 4;
+  int32 tasks_executed = 5;
+  bool is_alive = 6;
+  string locked_task = 7;
+  int64 lamport_clock = 8;
+}
