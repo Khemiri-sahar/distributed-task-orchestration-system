@@ -156,6 +156,10 @@ public class ConsensusManager {
         }
     }
 
+    public Map<Integer, NodeServiceGrpc.NodeServiceBlockingStub> getStubs() {
+        return stubs;
+    }
+
     public NodeServiceGrpc.NodeServiceBlockingStub getLeaderStub() {
         return stubs.get(state.getCurrentLeader());
     }
