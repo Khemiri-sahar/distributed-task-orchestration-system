@@ -62,6 +62,7 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
 
     public static void kill() { isKilled.set(true); }
     public static void revive() { isKilled.set(false); }
+    public static boolean isKilled() { return isKilled.get(); }
 
     @Override
     public void submitTask(NodeProto.TaskRequest request,

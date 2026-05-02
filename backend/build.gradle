@@ -12,6 +12,16 @@ java {
     sourceCompatibility = '17'
 }
 
+springBoot {
+    mainClass = 'com.distributed.DistributedApp'
+}
+
+bootJar {
+    manifest {
+        attributes 'Main-Class': 'org.springframework.boot.loader.launch.PropertiesLauncher'
+    }
+}
+
 repositories {
     mavenCentral()
 }

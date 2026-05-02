@@ -1,5 +1,6 @@
 package com.distributed.consensus;
 
+import com.distributed.grpc.NodeGrpcServer;
 import com.distributed.grpc.proto.NodeProto;
 import com.distributed.grpc.proto.NodeServiceGrpc;
 import com.distributed.model.NodeRole;
@@ -87,12 +88,14 @@ public class ConsensusManager {
                 lastHeartbeatFromPeer.put(peerId, System.currentTimeMillis());
             } catch (StatusRuntimeException e) {
                 System.out.println("Peer " + peerId + " unreachable during probe");
+                lastHeartbeatFromPeer.remove(peerId);
             }
         });
     }
 
     private void startHeartbeatBroadcaster() {
         scheduler.scheduleAtFixedRate(() -> {
+            if (NodeGrpcServer.isKilled()) return;
             if (state.getRole() != NodeRole.LEADER) return;
 
             stubs.forEach((peerId, stub) -> {
@@ -111,6 +114,7 @@ public class ConsensusManager {
 
     private void startHeartbeatWatchdog() {
         scheduler.scheduleAtFixedRate(() -> {
+            if (NodeGrpcServer.isKilled()) return;
             if (state.getRole() == NodeRole.LEADER) return;
 
             long timeSinceLastBeat = System.currentTimeMillis() - state.getLastHeartbeatMs();
@@ -146,11 +150,14 @@ public class ConsensusManager {
         state.setLastHeartbeatMs(System.currentTimeMillis());
         lastHeartbeatFromPeer.put(leaderId, System.currentTimeMillis());
 
-        if (term >= state.getCurrentTerm() && leaderId < state.getNodeId()) {
+        boolean shouldFollow = term > state.getCurrentTerm() ||
+                (term == state.getCurrentTerm() && leaderId < state.getNodeId());
+
+        if (shouldFollow) {
             state.setCurrentLeader(leaderId);
             state.setCurrentTerm(term);
             if (state.getRole() == NodeRole.LEADER) {
-                System.out.println("Demoting self — lower node " + leaderId + " is leader");
+                System.out.println("Demoting self — node " + leaderId + " is leader for term " + term);
                 state.setRole(NodeRole.FOLLOWER);
             }
         }
