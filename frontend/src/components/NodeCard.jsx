@@ -24,7 +24,7 @@ const ROLE_COLORS = {
 }
 
 export default function NodeCard({ node, onKill, onRevive }) {
-  const { nodeId, role, term, tasksExecuted, lamportClock, leaderId, lockedTask, alive } = node
+  const { nodeId, role, currentTerm, tasksExecuted, lamportClock, currentLeader, lockedTask, isAlive } = node
   const roleStyle = ROLE_STYLES[role] || ROLE_STYLES.FOLLOWER
   const roleColor = ROLE_COLORS[role] || 'var(--muted)'
 
@@ -68,10 +68,10 @@ export default function NodeCard({ node, onKill, onRevive }) {
         marginBottom: '1rem',
       }}>
         {[
-          ['TERM', term ?? '—'],
+          ['TERM', currentTerm ?? '—'],
           ['TASKS EXECUTED', tasksExecuted ?? 0],
           ['LAMPORT CLK', lamportClock ?? 0],
-          ['LEADER', leaderId ?? '—'],
+          ['LEADER', currentLeader >= 0 ? currentLeader : '—'],
         ].map(([label, value]) => (
           <div key={label} style={{
             background: 'rgba(255,255,255,0.03)',
@@ -104,16 +104,16 @@ export default function NodeCard({ node, onKill, onRevive }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem' }}>
           <span style={{
             width: '8px', height: '8px', borderRadius: '50%',
-            background: alive ? '#22c55e' : 'var(--dead)',
+            background: isAlive ? '#22c55e' : 'var(--dead)',
             display: 'inline-block',
-            boxShadow: alive ? '0 0 6px #22c55e' : 'none',
+            boxShadow: isAlive ? '0 0 6px #22c55e' : 'none',
           }} />
-          <span style={{ color: alive ? '#22c55e' : 'var(--dead)' }}>
-            {alive ? 'ALIVE' : 'DEAD'}
+          <span style={{ color: isAlive ? '#22c55e' : 'var(--dead)' }}>
+            {isAlive ? 'ALIVE' : 'DEAD'}
           </span>
         </div>
 
-        {alive ? (
+        {isAlive ? (
           <button
             onClick={() => onKill(nodeId)}
             style={{

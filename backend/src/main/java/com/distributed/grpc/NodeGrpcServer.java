@@ -60,8 +60,21 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
         }
     }
 
-    public static void kill() { isKilled.set(true); }
-    public static void revive() { isKilled.set(false); }
+    // Instance methods used by InternalController — also reset node state
+    public void killNode() {
+        isKilled.set(true);
+        state.setRole(NodeRole.FOLLOWER);
+        state.setCurrentLeader(-1);
+        System.out.println("Node " + state.getNodeId() + " killed");
+    }
+
+    public void reviveNode() {
+        isKilled.set(false);
+        // Reset heartbeat timestamp to zero so the watchdog fires and re-integrates
+        state.setLastHeartbeatMs(0);
+        System.out.println("Node " + state.getNodeId() + " revived — waiting for leader heartbeat or will trigger election");
+    }
+
     public static boolean isKilled() { return isKilled.get(); }
 
     @Override
@@ -78,6 +91,7 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
                 if (leaderStub == null) {
                     responseObserver.onNext(NodeProto.TaskResponse.newBuilder()
                             .setSuccess(false).setError("No leader available").build());
+                    responseObserver.onCompleted();
                     return;
                 }
                 NodeProto.TaskResponse forwarded = leaderStub
@@ -154,6 +168,11 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
     @Override
     public void getStatus(NodeProto.StatusRequest request,
                           StreamObserver<NodeProto.StatusResponse> responseObserver) {
+        // Return UNAVAILABLE when killed so the bridge correctly marks this node as DEAD
+        if (isKilled.get()) {
+            responseObserver.onError(Status.UNAVAILABLE.asException());
+            return;
+        }
         NodeProto.StatusResponse resp = NodeProto.StatusResponse.newBuilder()
                 .setNodeId(state.getNodeId())
                 .setRole(state.getRole().name())

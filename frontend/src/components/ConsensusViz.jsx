@@ -34,7 +34,7 @@ export default function ConsensusViz({ nodes }) {
 
   const leader = nodes.find(n => n.role === 'LEADER')
   const followers = nodes.filter(n => n.role === 'FOLLOWER')
-  const maxTerm = Math.max(...nodes.map(n => n.term ?? 0))
+  const maxTerm = Math.max(...nodes.map(n => n.currentTerm ?? 0))
 
   return (
     <div style={{
