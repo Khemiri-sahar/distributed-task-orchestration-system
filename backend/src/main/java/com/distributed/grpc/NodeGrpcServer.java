@@ -18,6 +18,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -86,24 +89,33 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
         }
 
         if (state.getRole() != NodeRole.LEADER) {
-            try {
-                NodeServiceGrpc.NodeServiceBlockingStub leaderStub = consensusManager.getLeaderStub();
-                if (leaderStub == null) {
-                    responseObserver.onNext(NodeProto.TaskResponse.newBuilder()
-                            .setSuccess(false).setError("No leader available").build());
+            Map<Integer, NodeServiceGrpc.NodeServiceBlockingStub> allStubs = consensusManager.getStubs();
+            int knownLeader = state.getCurrentLeader();
+
+            // Try the known leader first, then fall back to all other peers.
+            // This handles stale leader state after a re-election.
+            List<Integer> tryOrder = new ArrayList<>();
+            if (allStubs.containsKey(knownLeader)) tryOrder.add(knownLeader);
+            allStubs.keySet().stream().filter(id -> id != knownLeader).forEach(tryOrder::add);
+
+            for (int peerId : tryOrder) {
+                NodeServiceGrpc.NodeServiceBlockingStub stub = allStubs.get(peerId);
+                if (stub == null) continue;
+                try {
+                    NodeProto.TaskResponse forwarded = stub
+                            .withDeadlineAfter(5, TimeUnit.SECONDS)
+                            .submitTask(request);
+                    responseObserver.onNext(forwarded.toBuilder().setRedirected(true).build());
                     responseObserver.onCompleted();
                     return;
+                } catch (StatusRuntimeException e) {
+                    // This peer is down — try the next one
                 }
-                NodeProto.TaskResponse forwarded = leaderStub
-                        .withDeadlineAfter(5, TimeUnit.SECONDS)
-                        .submitTask(request);
-                responseObserver.onNext(forwarded.toBuilder().setRedirected(true).build());
-            } catch (StatusRuntimeException e) {
-                responseObserver.onNext(NodeProto.TaskResponse.newBuilder()
-                        .setSuccess(false).setError("Leader unreachable").build());
-            } finally {
-                responseObserver.onCompleted();
             }
+
+            responseObserver.onNext(NodeProto.TaskResponse.newBuilder()
+                    .setSuccess(false).setError("No leader available").build());
+            responseObserver.onCompleted();
             return;
         }
 

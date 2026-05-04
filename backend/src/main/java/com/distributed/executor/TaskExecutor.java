@@ -6,9 +6,9 @@ import com.distributed.state.NodeState;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 
 @Service("nodeTaskExecutor")
 public class TaskExecutor {
@@ -38,27 +38,61 @@ public class TaskExecutor {
     }
 
     private TaskLog handleCompute(String taskId, String taskType, String payload, int nodeId) {
+        if (payload.matches("^fibonacci:\\d+$")) {
+            try {
+                int n = Integer.parseInt(payload.split(":")[1]);
+                long result = fibonacci(n);
+                return TaskLog.of(taskId, taskType, payload, String.valueOf(result), nodeId, false, null);
+            } catch (Exception e) {
+                return TaskLog.of(taskId, taskType, payload, null, nodeId, false,
+                        "Fibonacci error: " + e.getMessage());
+            }
+        }
+
         if (!payload.matches("^[\\d\\s\\+\\-\\*\\/\\(\\)\\.]+$")) {
             return TaskLog.of(taskId, taskType, payload, null, nodeId, false,
-                    "Invalid expression characters");
+                    "Invalid expression. Use arithmetic (e.g. 2+3*4) or fibonacci:N");
         }
 
-        ScriptEngine engine = new ScriptEngineManager().getEngineByName("graal.js");
-        if (engine == null) {
-            engine = new ScriptEngineManager().getEngineByName("javascript");
-        }
-        if (engine == null) {
+        Matcher m = Pattern.compile("^([\\d.]+)\\s*([+\\-*/])\\s*([\\d.]+)$")
+                .matcher(payload.trim());
+        if (!m.matches()) {
             return TaskLog.of(taskId, taskType, payload, null, nodeId, false,
-                    "No script engine available");
+                    "Use format: a+b, a-b, a*b, a/b, or fibonacci:N");
         }
 
-        try {
-            Object result = engine.eval(payload);
-            return TaskLog.of(taskId, taskType, payload, String.valueOf(result), nodeId, false, null);
-        } catch (ScriptException e) {
-            return TaskLog.of(taskId, taskType, payload, null, nodeId, false,
-                    "Evaluation failed: " + e.getMessage());
+        double a = Double.parseDouble(m.group(1));
+        String op = m.group(2);
+        double b = Double.parseDouble(m.group(3));
+
+        double result;
+        switch (op) {
+            case "+" -> result = a + b;
+            case "-" -> result = a - b;
+            case "*" -> result = a * b;
+            case "/" -> {
+                if (b == 0) return TaskLog.of(taskId, taskType, payload, null, nodeId, false, "Division by zero");
+                result = a / b;
+            }
+            default -> { return TaskLog.of(taskId, taskType, payload, null, nodeId, false, "Unknown operator"); }
         }
+
+        String formatted = result == Math.floor(result) && !Double.isInfinite(result)
+                ? String.valueOf((long) result)
+                : String.valueOf(result);
+        return TaskLog.of(taskId, taskType, payload, formatted, nodeId, false, null);
+    }
+
+    private long fibonacci(int n) {
+        if (n <= 0) return 0;
+        if (n == 1) return 1;
+        long a = 0, b = 1;
+        for (int i = 2; i <= n; i++) {
+            long c = a + b;
+            a = b;
+            b = c;
+        }
+        return b;
     }
 
     private TaskLog handleMessage(String taskId, String taskType, String payload, int nodeId) {

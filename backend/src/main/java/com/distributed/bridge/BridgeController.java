@@ -88,6 +88,13 @@ public class BridgeController {
                         .withDeadlineAfter(5, TimeUnit.SECONDS)
                         .submitTask(req);
 
+                // Routing errors (stale leader, no leader) are not task failures —
+                // retry the next node instead of surfacing them to the client.
+                String err = resp.getError();
+                if (!resp.getSuccess() && (err.contains("No leader") || err.contains("Leader unreachable"))) {
+                    continue;
+                }
+
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("taskId", taskId);
                 result.put("result", resp.getResult());
