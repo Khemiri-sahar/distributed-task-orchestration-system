@@ -14,6 +14,8 @@ import io.grpc.ServerBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -23,10 +25,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
+
+    private static final Logger log = LoggerFactory.getLogger(NodeGrpcServer.class);
 
     private final NodeState state;
     private final ConsensusManager consensusManager;
@@ -35,7 +38,6 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
     private final TaskLogger taskLogger;
 
     private Server grpcServer;
-    private static final AtomicBoolean isKilled = new AtomicBoolean(false);
 
     public NodeGrpcServer(NodeState state, ConsensusManager consensusManager,
                           LamportMutex lamportMutex,
@@ -54,7 +56,7 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
                 .executor(Executors.newFixedThreadPool(10))
                 .build()
                 .start();
-        System.out.println("gRPC server started on port " + port);
+        log.info("gRPC server started on port {}", port);
     }
 
     public void stop() {
@@ -65,25 +67,23 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
 
     // Instance methods used by InternalController — also reset node state
     public void killNode() {
-        isKilled.set(true);
+        state.setKilled(true);
         state.setRole(NodeRole.FOLLOWER);
         state.setCurrentLeader(-1);
-        System.out.println("Node " + state.getNodeId() + " killed");
+        log.info("Node {} killed", state.getNodeId());
     }
 
     public void reviveNode() {
-        isKilled.set(false);
+        state.setKilled(false);
         // Reset heartbeat timestamp to zero so the watchdog fires and re-integrates
         state.setLastHeartbeatMs(0);
-        System.out.println("Node " + state.getNodeId() + " revived — waiting for leader heartbeat or will trigger election");
+        log.info("Node {} revived — waiting for leader heartbeat or will trigger election", state.getNodeId());
     }
-
-    public static boolean isKilled() { return isKilled.get(); }
 
     @Override
     public void submitTask(NodeProto.TaskRequest request,
                            StreamObserver<NodeProto.TaskResponse> responseObserver) {
-        if (isKilled.get()) {
+        if (state.isKilled()) {
             responseObserver.onError(Status.UNAVAILABLE.asException());
             return;
         }
@@ -144,7 +144,7 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
     @Override
     public void sendHeartbeat(NodeProto.HeartbeatRequest request,
                               StreamObserver<NodeProto.HeartbeatResponse> responseObserver) {
-        if (isKilled.get()) {
+        if (state.isKilled()) {
             responseObserver.onError(Status.UNAVAILABLE.asException());
             return;
         }
@@ -160,7 +160,7 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
     @Override
     public void acquireLock(NodeProto.LockRequest request,
                             StreamObserver<NodeProto.LockResponse> responseObserver) {
-        if (isKilled.get()) {
+        if (state.isKilled()) {
             responseObserver.onError(Status.UNAVAILABLE.asException());
             return;
         }
@@ -181,7 +181,7 @@ public class NodeGrpcServer extends NodeServiceGrpc.NodeServiceImplBase {
     public void getStatus(NodeProto.StatusRequest request,
                           StreamObserver<NodeProto.StatusResponse> responseObserver) {
         // Return UNAVAILABLE when killed so the bridge correctly marks this node as DEAD
-        if (isKilled.get()) {
+        if (state.isKilled()) {
             responseObserver.onError(Status.UNAVAILABLE.asException());
             return;
         }

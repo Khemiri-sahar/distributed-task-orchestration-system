@@ -5,6 +5,8 @@ import com.distributed.grpc.proto.NodeProto;
 import com.distributed.grpc.proto.NodeServiceGrpc;
 import com.distributed.state.NodeState;
 import io.grpc.StatusRuntimeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -15,6 +17,8 @@ import java.util.concurrent.locks.ReentrantLock;
 
 @Component
 public class LamportMutex {
+
+    private static final Logger log = LoggerFactory.getLogger(LamportMutex.class);
 
     private final NodeState state;
     private final ConsensusManager consensusManager;
@@ -60,7 +64,7 @@ public class LamportMutex {
                     receivedOks.add(peerId);
                 }
             } catch (StatusRuntimeException e) {
-                System.out.println("Peer " + peerId + " unreachable during lock acquire — counting as OK");
+                log.warn("Peer {} unreachable during lock acquire — counting as OK", peerId);
                 receivedOks.add(peerId);
             }
         }
@@ -71,7 +75,7 @@ public class LamportMutex {
             while (receivedOks.size() < aliveCount) {
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) {
-                    System.out.println("Lock timeout — proceeding anyway");
+                    log.warn("Lock acquire timed out after {}s — proceeding anyway", LOCK_TIMEOUT_SECONDS);
                     break;
                 }
                 allOksReceived.await(remaining, TimeUnit.MILLISECONDS);
@@ -83,13 +87,13 @@ public class LamportMutex {
         }
 
         state.setLockedTask(taskId);
-        System.out.println("Node " + state.getNodeId() + " acquired lock for task " + taskId);
+        log.info("Node {} acquired lock for task {}", state.getNodeId(), taskId);
     }
 
     public void releaseLock(String taskId) {
         pendingRequests.remove(taskId);
         state.setLockedTask("");
-        System.out.println("Node " + state.getNodeId() + " released lock for task " + taskId);
+        log.info("Node {} released lock for task {}", state.getNodeId(), taskId);
 
         // Send OK to any deferred peers
         Map<Integer, NodeServiceGrpc.NodeServiceBlockingStub> peerStubs = consensusManager.getStubs();
@@ -104,7 +108,7 @@ public class LamportMutex {
                         .build();
                 stub.withDeadlineAfter(2, TimeUnit.SECONDS).releaseLock(req);
             } catch (StatusRuntimeException e) {
-                System.out.println("Warning: could not notify peer " + peerId + " of lock release");
+                log.warn("Could not notify peer {} of lock release", peerId);
             }
         });
         deferredOks.clear();
@@ -120,7 +124,7 @@ public class LamportMutex {
                         .build();
                 stub.withDeadlineAfter(2, TimeUnit.SECONDS).releaseLock(req);
             } catch (StatusRuntimeException e) {
-                System.out.println("Warning: could not notify peer " + peerId + " of lock release");
+                log.warn("Could not notify peer {} of lock release", peerId);
             }
         });
     }

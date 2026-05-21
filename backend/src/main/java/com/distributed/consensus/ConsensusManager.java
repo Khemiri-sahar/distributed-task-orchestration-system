@@ -1,6 +1,5 @@
 package com.distributed.consensus;
 
-import com.distributed.grpc.NodeGrpcServer;
 import com.distributed.grpc.proto.NodeProto;
 import com.distributed.grpc.proto.NodeServiceGrpc;
 import com.distributed.model.NodeRole;
@@ -8,6 +7,8 @@ import com.distributed.state.NodeState;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -16,6 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 public class ConsensusManager {
+
+    private static final Logger log = LoggerFactory.getLogger(ConsensusManager.class);
 
     private final NodeState state;
 
@@ -76,8 +79,7 @@ public class ConsensusManager {
             startHeartbeatBroadcaster();
             startHeartbeatWatchdog();
 
-            System.out.println("Node " + state.getNodeId() + " started as " + state.getRole()
-                    + ". Leader: " + state.getCurrentLeader());
+            log.info("Node {} started as {}. Leader: {}", state.getNodeId(), state.getRole(), state.getCurrentLeader());
 
         }, 2, TimeUnit.SECONDS);
     }
@@ -91,7 +93,7 @@ public class ConsensusManager {
                         .getStatus(NodeProto.StatusRequest.getDefaultInstance());
                 lastHeartbeatFromPeer.put(peerId, System.currentTimeMillis());
             } catch (StatusRuntimeException e) {
-                System.out.println("Peer " + peerId + " unreachable during probe");
+                log.warn("Peer {} unreachable during probe", peerId);
                 lastHeartbeatFromPeer.remove(peerId);
             }
         });
@@ -100,7 +102,7 @@ public class ConsensusManager {
     private void startHeartbeatBroadcaster() {
         if (!broadcasterStarted.compareAndSet(false, true)) return;
         scheduler.scheduleAtFixedRate(() -> {
-            if (NodeGrpcServer.isKilled()) return;
+            if (state.isKilled()) return;
             if (state.getRole() != NodeRole.LEADER) return;
 
             stubs.forEach((peerId, stub) -> {
@@ -111,7 +113,7 @@ public class ConsensusManager {
                             .build();
                     stub.withDeadlineAfter(2, TimeUnit.SECONDS).sendHeartbeat(req);
                 } catch (StatusRuntimeException e) {
-                    System.out.println("Peer " + peerId + " did not respond to heartbeat");
+                    log.warn("Peer {} did not respond to heartbeat", peerId);
                 }
             });
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
@@ -120,12 +122,12 @@ public class ConsensusManager {
     private void startHeartbeatWatchdog() {
         if (!watchdogStarted.compareAndSet(false, true)) return;
         scheduler.scheduleAtFixedRate(() -> {
-            if (NodeGrpcServer.isKilled()) return;
+            if (state.isKilled()) return;
             if (state.getRole() == NodeRole.LEADER) return;
 
             long timeSinceLastBeat = System.currentTimeMillis() - state.getLastHeartbeatMs();
             if (timeSinceLastBeat > HEARTBEAT_TIMEOUT_MS) {
-                System.out.println("Node " + state.getNodeId() + " — heartbeat timeout, triggering re-election");
+                log.warn("Node {} — heartbeat timeout ({}ms), triggering re-election", state.getNodeId(), timeSinceLastBeat);
                 triggerReElection();
             }
         }, 500, 500, TimeUnit.MILLISECONDS);
@@ -144,8 +146,7 @@ public class ConsensusManager {
             state.setCurrentTerm(state.getCurrentTerm() + 1);
             state.setRole(NodeRole.LEADER);
             state.setCurrentLeader(state.getNodeId());
-            System.out.println("Node " + state.getNodeId() + " elected as new LEADER for term "
-                    + state.getCurrentTerm());
+            log.info("Node {} elected as new LEADER for term {}", state.getNodeId(), state.getCurrentTerm());
         } else {
             // A lower-ID node is alive — stand down without bumping the term.
             // The existing leader's heartbeats will still satisfy shouldFollow.
@@ -165,8 +166,7 @@ public class ConsensusManager {
             state.setCurrentLeader(leaderId);
             state.setCurrentTerm(term);
             if (state.getRole() != NodeRole.FOLLOWER) {
-                System.out.println("Node " + state.getNodeId()
-                        + " demoted to FOLLOWER — node " + leaderId + " is leader for term " + term);
+                log.info("Node {} demoted to FOLLOWER — node {} is leader for term {}", state.getNodeId(), leaderId, term);
                 state.setRole(NodeRole.FOLLOWER);
             }
         }

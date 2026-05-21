@@ -6,6 +6,7 @@ import com.distributed.model.TaskLog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -13,6 +14,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class NodeState {
 
     private final int nodeId;
+    private final AtomicBoolean killed = new AtomicBoolean(false);
     private volatile NodeRole role = NodeRole.FOLLOWER;
     private volatile int currentLeader = -1;
     private volatile int currentTerm = 0;
@@ -152,6 +154,14 @@ public class NodeState {
         } finally {
             stateLock.writeLock().unlock();
         }
+    }
+
+    public boolean isKilled() {
+        return killed.get();
+    }
+
+    public void setKilled(boolean value) {
+        killed.set(value);
     }
 
     public ReentrantReadWriteLock getStateLock() {
