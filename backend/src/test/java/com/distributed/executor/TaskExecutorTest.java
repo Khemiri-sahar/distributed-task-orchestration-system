@@ -69,4 +69,34 @@ public class TaskExecutorTest {
         assertNull(log.getError());
         assertEquals("55", log.getResult());
     }
+
+    @Test
+    public void message_reversePayload_returnsReversed() {
+        NodeProto.TaskRequest req = NodeProto.TaskRequest.newBuilder()
+                .setTaskId("t-msg")
+                .setTaskType("message")
+                .setPayload("hello")
+                .build();
+
+        NodeState state = new NodeState(1, Collections.emptyList());
+        TaskLog log = executor.execute(req, 1, state);
+
+        assertNull(log.getError());
+        assertEquals("olleh", log.getResult());
+    }
+
+    @Test
+    public void unknownTaskType_returnsErrorLog() {
+        NodeProto.TaskRequest req = NodeProto.TaskRequest.newBuilder()
+                .setTaskId("t-unknown")
+                .setTaskType("sort")
+                .setPayload("data")
+                .build();
+
+        NodeState state = new NodeState(1, Collections.emptyList());
+        TaskLog log = executor.execute(req, 1, state);
+
+        assertNotNull(log.getError());
+        assertTrue(log.getError().contains("Unknown task type"));
+    }
 }
