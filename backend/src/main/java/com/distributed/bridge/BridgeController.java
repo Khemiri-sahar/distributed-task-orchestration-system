@@ -75,7 +75,15 @@ public class BridgeController {
     @PostMapping("/task")
     public ResponseEntity<Map<String, Object>> submitTask(@RequestBody Map<String, String> body) {
         String taskType = body.get("taskType");
-        String payload = body.get("payload");
+        String payload  = body.get("payload");
+
+        if (taskType == null || taskType.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Missing required field: taskType"));
+        }
+        if (payload == null || payload.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Missing required field: payload"));
+        }
+
         String taskId = UUID.randomUUID().toString();
 
         List<Integer> nodeIds = new ArrayList<>(List.of(1, 2, 3));
