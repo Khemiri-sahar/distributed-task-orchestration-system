@@ -133,6 +133,7 @@ public class LamportMutex {
         state.updateLamportClock(request.getLamportTimestamp());
 
         if (pendingRequests.isEmpty()) {
+            System.out.println("[LOCK] Node " + state.getNodeId() + " - NO pending request - GRANT to requester " + request.getRequesterId() + " (ts=" + request.getLamportTimestamp() + ")");
             return NodeProto.LockResponse.newBuilder().setGranted(true).build();
         }
 
@@ -143,9 +144,11 @@ public class LamportMutex {
                 (theirTs == myTs && request.getRequesterId() < state.getNodeId());
 
         if (theyWin) {
+            System.out.println("[LOCK] Node " + state.getNodeId() + " (ts=" + myTs + ") - GRANT to requester " + request.getRequesterId() + " (ts=" + theirTs + ") - they win");
             return NodeProto.LockResponse.newBuilder().setGranted(true).build();
         } else {
             deferredOks.put(request.getRequesterId(), request.getTaskId());
+            System.out.println("[LOCK] Node " + state.getNodeId() + " (ts=" + myTs + ") - DEFER requester " + request.getRequesterId() + " (ts=" + theirTs + ") - I win");
             return NodeProto.LockResponse.newBuilder().setGranted(false).build();
         }
     }
