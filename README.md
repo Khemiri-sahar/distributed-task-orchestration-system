@@ -4,161 +4,151 @@ A three-node distributed system with leader election, Lamport mutual exclusion, 
 
 ---
 
+![Three-node dashboard](images/nodes_main_screen.png)
+
 ## Architecture
 
 The backend consists of three independent Java nodes that communicate exclusively over **gRPC**. Each node runs a gRPC server and exposes five RPCs: `submitTask`, `sendHeartbeat`, `getStatus`, `acquireLock`, and `releaseLock`. Leader election follows a simplified Raft-inspired protocol: on startup each node probes its peers using `getStatus`; the node with the lowest ID among reachable nodes claims the LEADER role and begins broadcasting heartbeats every second. Followers run a watchdog that triggers re-election after a 3-second heartbeat timeout. When a node re-joins after a crash, it probes peers before ever incrementing its term — if a lower-ID node is already alive, it stands down without disrupting the existing leader.
 
 Task execution uses **Lamport logical clocks** for mutual exclusion. Before executing a task the leader acquires a distributed lock by broadcasting `acquireLock` RPCs to all peers; peers grant or defer based on Lamport timestamp ordering, preventing concurrent task execution across nodes. The **Bridge** is a lightweight Spring Boot application that sits between the React frontend and the gRPC cluster: it exposes a REST/JSON API on port 8000, translates HTTP requests into gRPC calls, fans out status polls to all three nodes, and handles leader-not-found by trying nodes in random order until one accepts the task. The React frontend polls `/api/status` every 2 seconds and visualises the live consensus state with animated SVG topology, per-node cards, and a task dispatch form.
 
+
+**Topology Diagram**
+
+```mermaid
+flowchart LR
+	F[React Frontend]
+	B[Bridge (REST)]
+	subgraph Cluster[Cluster (gRPC)]
+		direction TB
+		N1[Node 1\ngRPC:50051\nREST:8001]
+		N2[Node 2\ngRPC:50052\nREST:8002]
+		N3[Node 3\ngRPC:50053\nREST:8003]
+	end
+
+	F -->|HTTP /api| B
+	B -->|gRPC (submit / status)| N1
+	B -->|gRPC (submit / status)| N2
+	B -->|gRPC (submit / status)| N3
+
+	N1 <-->|gRPC peer| N2
+	N2 <-->|gRPC peer| N3
+	N1 <-->|gRPC peer| N3
+```
+
+**Bridge API**
+
+| Endpoint | Method | Description |
+|---|---:|---|
+| `/api/status` | GET | Aggregated cluster status (polled by frontend) |
+| `/api/task` | POST | Submit a task JSON: `{ "type": "compute|message", "payload": "..." }` |
+| `/internal/kill` | POST | Simulate node crash (body: `{ "nodeId": <n> }`) |
+| `/internal/revive` | POST | Revive a previously killed node (body: `{ "nodeId": <n> }`) |
+
+**Design Decisions (ADR)**
+
+- Leader election: deterministic lowest-node-ID wins for demo reproducibility; mutual exclusion uses Lamport logical clocks to order lock requests and ensure fairness.
+
+
+## Prerequisites
+# Distributed Task Orchestration System
+
+A compact demo platform that runs a three-node distributed cluster with leader election, Lamport mutual exclusion for task execution, and a React dashboard for monitoring and interaction.
+
+This repository contains:
+
+- A Java Spring Boot backend that can run as multiple independent nodes (gRPC + REST bridge).
+- A lightweight Bridge (Spring Boot) that exposes a REST API to the frontend and forwards requests to the gRPC nodes.
+- A React frontend (Vite) that visualises cluster state and lets you submit tasks.
+
+This README describes how to build, run, and test the system locally, and how to run it using Docker Compose.
+
+---
+
+## Highlights
+
+- Leader election with a lowest-ID priority rule for deterministic demos.
+- Lamport-clock-based mutual exclusion (`LamportMutex`) for distributed task execution.
+- Task types: `compute` (arithmetic expressions, Fibonacci) and `message` (string reverse).
+- REST Bridge that exposes `/api/status`, `/api/task`, `/api/logs`, and node control endpoints (`/internal/kill`, `/internal/revive`).
+
 ---
 
 ## Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Java | 17+ |
-| Node.js | 18+ |
-| Gradle | 8+ (or use the included `./gradlew` wrapper) |
+- Java 17+
+- Docker & Docker Compose (if using the provided compose setup)
+- Node.js (only required for local frontend development)
 
 ---
 
-## Setup & Run
+## Quickstart (Docker Compose)
+
+The repository includes a `docker-compose.yml` to run three nodes, the bridge, and the frontend.
+
+To build and start the stack:
 
 ```bash
-# 1. Clone the repository
-git clone <repo-url>
-cd distributed-task-orchestration-system
-
-# 2. Make scripts executable
-chmod +x start-all.sh stop-all.sh
-
-# 3. Start everything (builds backend, starts 3 nodes + bridge + frontend)
-./start-all.sh
+docker compose up --build
 ```
 
-Open **http://localhost:5173** in your browser.
+Services exposed locally:
 
-To stop all processes:
+- Frontend: http://localhost:5173
+- Bridge REST API: http://localhost:8000/api
+- Node REST endpoints: http://localhost:8001, :8002, :8003 (internal control)
+- gRPC ports: 50051, 50052, 50053 (for inter-node and bridge → node traffic)
+
+Stop the stack:
 
 ```bash
-./stop-all.sh
+docker compose down
 ```
 
 ---
 
-## Manual Startup (alternative)
+## Local Development (manual)
 
-Open five terminals from the project root:
+Build backend jar:
 
 ```bash
-# Terminal 1 — build
-cd backend && ./gradlew bootJar -x test
+cd backend
+./gradlew bootJar -x test
 
-# Terminal 2 — Node 1 (leader on first boot)
-NODE_ID=1 GRPC_PORT=50051 REST_PORT=8001 \
-  java -jar backend/build/libs/distributed-task-orchestration-system-*.jar
+# Run nodes (three separate shells)
+NODE_ID=1 GRPC_PORT=50051 REST_PORT=8001 java -jar build/libs/*.jar
+NODE_ID=2 GRPC_PORT=50052 REST_PORT=8002 java -jar build/libs/*.jar
+NODE_ID=3 GRPC_PORT=50053 REST_PORT=8003 java -jar build/libs/*.jar
 
-# Terminal 3 — Node 2
-NODE_ID=2 GRPC_PORT=50052 REST_PORT=8002 \
-  java -jar backend/build/libs/distributed-task-orchestration-system-*.jar
+# Run the Bridge (in a separate shell)
+REST_PORT=8000 java -Dloader.main=com.distributed.bridge.BridgeApp -jar build/libs/*.jar
 
-# Terminal 4 — Node 3
-NODE_ID=3 GRPC_PORT=50053 REST_PORT=8003 \
-  java -jar backend/build/libs/distributed-task-orchestration-system-*.jar
-
-# Terminal 5 — Bridge (wait ~5s for nodes to be ready)
-REST_PORT=8000 java -Dloader.main=com.distributed.bridge.BridgeApp \
-  -jar backend/build/libs/distributed-task-orchestration-system-*.jar
-
-# Terminal 6 — Frontend
-cd frontend && npm install && npm run dev
+# Frontend (development)
+cd frontend
+npm install
+npm run dev
 ```
 
 ---
 
-## Testing the System
+## Tests
 
-### 1. Submit a compute task
+Run backend unit tests:
 
-- Task type: `compute`
-- Payload: `100 + 50 * 2`
-- Expected result: `200.0`
+```bash
+cd backend
+./gradlew test
+```
 
-The expression is evaluated by the leader and the result appears in the task log.
-
-### 2. Submit a message task
-
-- Task type: `message`
-- Payload: `Hello Distributed`
-- Expected result: `detubirtsiD olleH`
-
-The message is reversed character-by-character by the executing node.
-
-### 3. Test fault tolerance
-
-1. In the dashboard, click **⚡ KILL** on Node 1 (the current leader).
-2. Watch the ConsensusViz — after ~4 seconds the CANDIDATE animation appears on Node 2 or 3, then one becomes LEADER.
-3. Submit any task — it should execute on the new leader (`executedBy` in the result).
-
-### 4. Test task redirection
-
-The bridge picks a node at random. When it picks a follower:
-
-1. The follower forwards the task to the leader via gRPC.
-2. The response comes back with `"redirected": true`.
-3. The `↪` column in the task log will be marked.
-
-### 5. Revive Node 1
-
-1. Click **↺ REVIVE** on Node 1.
-2. Node 1 probes its peers, finds the current leader alive, and rejoins as **FOLLOWER**.
-3. The existing leader keeps its role — no unnecessary re-election.
+Known test targets in this repository include unit tests for `TaskExecutor` and `LamportMutex`.
 
 ---
 
-## Project Structure
+## Troubleshooting
 
-```
-.
-├── start-all.sh               # One-command startup
-├── stop-all.sh                # Kill all processes
-├── backend/
-│   ├── proto/                 # Protobuf definitions (NodeService)
-│   └── src/main/java/com/distributed/
-│       ├── DistributedApp.java          # Node entry point
-│       ├── bridge/
-│       │   ├── BridgeApp.java           # Bridge entry point
-│       │   ├── BridgeController.java    # REST → gRPC translation
-│       │   └── InternalController.java  # /internal/kill & /revive
-│       ├── consensus/
-│       │   └── ConsensusManager.java    # Heartbeat, election, watchdog
-│       ├── executor/
-│       │   └── TaskExecutor.java        # compute / message handlers
-│       ├── grpc/
-│       │   └── NodeGrpcServer.java      # gRPC service implementation
-│       ├── model/
-│       │   ├── NodeRole.java            # LEADER / FOLLOWER / CANDIDATE
-│       │   └── TaskLog.java
-│       ├── mutex/
-│       │   └── LamportMutex.java        # Distributed lock
-│       └── state/
-│           └── NodeState.java           # Per-node mutable state
-└── frontend/
-    └── src/
-        ├── api/bridge.js                # Axios wrappers for Bridge REST API
-        ├── App.jsx                      # Root layout + 2s polling loop
-        └── components/
-            ├── ConsensusViz.jsx         # Animated SVG cluster topology
-            ├── NodeCard.jsx             # Per-node status card
-            ├── TaskSubmitter.jsx        # Task dispatch form
-            ├── TaskLog.jsx              # Scrollable result table
-            └── ErrorBanner.jsx         # Bridge-offline warning
-```
+- If a node does not start, check the logs printed in the container (or `/tmp/*.log` when using the provided shell scripts).
+- The bridge uses configured host/port lists to connect to nodes; when running under Docker Compose services are reachable by their service names.
 
 ---
 
-## Known Limitations
 
-- **Leader election** uses a lowest-ID priority rule rather than full Raft vote counting. This means the node with the smallest ID always wins when it is alive — suitable for demos, not for production skew scenarios.
-- **Lock timeout** is 5 seconds, hardcoded in `LamportMutex.java`. Under high contention with slow nodes this can cause tasks to fail.
-- **Bridge logs** are in-memory only and reset on each Bridge restart.
