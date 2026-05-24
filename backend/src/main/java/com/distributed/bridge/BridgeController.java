@@ -6,6 +6,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
@@ -24,16 +25,25 @@ public class BridgeController {
     private final ConcurrentLinkedQueue<Map<String, Object>> taskLogs = new ConcurrentLinkedQueue<>();
     private final RestTemplate restTemplate;
 
-    private static final Map<Integer, Integer> NODE_PORTS = Map.of(1, 50051, 2, 50052, 3, 50053);
+    private final Map<Integer, String> nodeHosts;
+    private final Map<Integer, Integer> nodeGrpcPorts;
+    private final Map<Integer, Integer> nodeRestPorts;
 
-    public BridgeController(RestTemplate restTemplate) {
+    public BridgeController(RestTemplate restTemplate,
+                            @Value("${bridge.node.hosts:localhost,localhost,localhost}") String nodeHostsRaw,
+                            @Value("${bridge.node.grpc.ports:50051,50052,50053}") String nodeGrpcPortsRaw,
+                            @Value("${bridge.node.rest.ports:8001,8002,8003}") String nodeRestPortsRaw) {
         this.restTemplate = restTemplate;
+        this.nodeHosts = parseStringMapping(nodeHostsRaw);
+        this.nodeGrpcPorts = parseIntMapping(nodeGrpcPortsRaw);
+        this.nodeRestPorts = parseIntMapping(nodeRestPortsRaw);
     }
 
     @PostConstruct
     public void initStubs() {
-        NODE_PORTS.forEach((id, port) -> {
-            ManagedChannel ch = ManagedChannelBuilder.forAddress("localhost", port)
+        nodeGrpcPorts.forEach((id, port) -> {
+            String host = nodeHosts.getOrDefault(id, "localhost");
+            ManagedChannel ch = ManagedChannelBuilder.forAddress(host, port)
                     .usePlaintext().build();
             nodeStubs.put(id, NodeServiceGrpc.newBlockingStub(ch));
         });
@@ -137,7 +147,8 @@ public class BridgeController {
     @PostMapping("/kill/{nodeId}")
     public ResponseEntity<Map<String, Object>> killNode(@PathVariable int nodeId) {
         try {
-            restTemplate.postForEntity("http://localhost:800" + nodeId + "/internal/kill", null, String.class);
+            restTemplate.postForEntity("http://" + nodeHosts.getOrDefault(nodeId, "localhost") + ":"
+                    + nodeRestPorts.getOrDefault(nodeId, 8000 + nodeId) + "/internal/kill", null, String.class);
             return ResponseEntity.ok(Map.of("killed", nodeId));
         } catch (Exception e) {
             return ResponseEntity.status(503).body(Map.of("error", "Could not kill node"));
@@ -147,11 +158,30 @@ public class BridgeController {
     @PostMapping("/revive/{nodeId}")
     public ResponseEntity<Map<String, Object>> reviveNode(@PathVariable int nodeId) {
         try {
-            restTemplate.postForEntity("http://localhost:800" + nodeId + "/internal/revive", null, String.class);
+            restTemplate.postForEntity("http://" + nodeHosts.getOrDefault(nodeId, "localhost") + ":"
+                    + nodeRestPorts.getOrDefault(nodeId, 8000 + nodeId) + "/internal/revive", null, String.class);
             return ResponseEntity.ok(Map.of("revived", nodeId));
         } catch (Exception e) {
             return ResponseEntity.status(503).body(Map.of("error", "Could not revive node"));
         }
+    }
+
+    private Map<Integer, String> parseStringMapping(String raw) {
+        String[] values = raw.split(",");
+        Map<Integer, String> result = new LinkedHashMap<>();
+        for (int i = 0; i < values.length; i++) {
+            result.put(i + 1, values[i].trim());
+        }
+        return result;
+    }
+
+    private Map<Integer, Integer> parseIntMapping(String raw) {
+        String[] values = raw.split(",");
+        Map<Integer, Integer> result = new LinkedHashMap<>();
+        for (int i = 0; i < values.length; i++) {
+            result.put(i + 1, Integer.parseInt(values[i].trim()));
+        }
+        return result;
     }
 
     private void addToLogs(Map<String, Object> entry) {
