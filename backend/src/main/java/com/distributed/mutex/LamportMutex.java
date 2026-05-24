@@ -133,7 +133,8 @@ public class LamportMutex {
         state.updateLamportClock(request.getLamportTimestamp());
 
         if (pendingRequests.isEmpty()) {
-            System.out.println("[LOCK] Node " + state.getNodeId() + " - NO pending request - GRANT to requester " + request.getRequesterId() + " (ts=" + request.getLamportTimestamp() + ")");
+            log.debug("Node {} has no pending request — granting lock to requester {} (ts={})",
+                    state.getNodeId(), request.getRequesterId(), request.getLamportTimestamp());
             return NodeProto.LockResponse.newBuilder().setGranted(true).build();
         }
 
@@ -144,11 +145,13 @@ public class LamportMutex {
                 (theirTs == myTs && request.getRequesterId() < state.getNodeId());
 
         if (theyWin) {
-            System.out.println("[LOCK] Node " + state.getNodeId() + " (ts=" + myTs + ") - GRANT to requester " + request.getRequesterId() + " (ts=" + theirTs + ") - they win");
+            log.debug("Node {} (ts={}) granting lock — requester {} wins (ts={})",
+                    state.getNodeId(), myTs, request.getRequesterId(), theirTs);
             return NodeProto.LockResponse.newBuilder().setGranted(true).build();
         } else {
             deferredOks.put(request.getRequesterId(), request.getTaskId());
-            System.out.println("[LOCK] Node " + state.getNodeId() + " (ts=" + myTs + ") - DEFER requester " + request.getRequesterId() + " (ts=" + theirTs + ") - I win");
+            log.debug("Node {} (ts={}) deferring requester {} (ts={}) — I win",
+                    state.getNodeId(), myTs, request.getRequesterId(), theirTs);
             return NodeProto.LockResponse.newBuilder().setGranted(false).build();
         }
     }

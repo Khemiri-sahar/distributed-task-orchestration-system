@@ -3,7 +3,6 @@ package com.distributed.executor;
 import com.distributed.grpc.proto.NodeProto;
 import com.distributed.model.TaskLog;
 import com.distributed.state.NodeState;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.regex.Matcher;
@@ -13,8 +12,11 @@ import java.util.regex.Pattern;
 @Service("nodeTaskExecutor")
 public class TaskExecutor {
 
-    @Autowired
-    private TaskLogger taskLogger;
+    private final TaskLogger taskLogger;
+
+    public TaskExecutor(TaskLogger taskLogger) {
+        this.taskLogger = taskLogger;
+    }
 
     public TaskLog execute(NodeProto.TaskRequest request, int nodeId, NodeState state) {
         String taskId = request.getTaskId();

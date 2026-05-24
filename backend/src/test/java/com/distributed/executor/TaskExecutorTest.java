@@ -6,7 +6,6 @@ import com.distributed.state.NodeState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -16,12 +15,8 @@ public class TaskExecutorTest {
     private TaskExecutor executor;
 
     @BeforeEach
-    public void setup() throws Exception {
-        executor = new TaskExecutor();
-        TaskLogger logger = new TaskLogger();
-        Field f = TaskExecutor.class.getDeclaredField("taskLogger");
-        f.setAccessible(true);
-        f.set(executor, logger);
+    public void setup() {
+        executor = new TaskExecutor(new TaskLogger());
     }
 
     @Test
